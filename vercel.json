@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd amity-storage-console && npm install",
+  "buildCommand": "cd amity-storage-console && npm run build",
+  "outputDirectory": "amity-storage-console/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
