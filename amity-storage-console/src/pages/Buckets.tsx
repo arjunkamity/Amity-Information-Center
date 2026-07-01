@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Database, Plus, Search, Lock, Globe, Building2, Trash2 } from 'lucide-react'
+import { Database, Plus, Search, Lock, Globe, Building2, Trash2, Eye } from 'lucide-react'
 import { Card, Badge, Loading, Empty } from '../components/ui'
 import { Modal } from '../components/Modal'
 import {
@@ -94,7 +94,10 @@ export default function Buckets() {
                       <td><Badge tone={bucketStatusTone[b.status]} dot>{b.status}</Badge></td>
                       <td className="muted text-sm">{formatDate(b.createdAt)}</td>
                       <td style={{ textAlign: 'right' }}>
-                        <button className="btn sm danger" onClick={() => handleDelete(b)} title="Delete bucket"><Trash2 size={14} /></button>
+                        <span className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
+                          <Link to={`/buckets/${b.id}`} className="btn sm ghost" title="View bucket data"><Eye size={14} /> View</Link>
+                          <button className="btn sm danger" onClick={() => handleDelete(b)} title="Delete bucket"><Trash2 size={14} /></button>
+                        </span>
                       </td>
                     </tr>
                   )

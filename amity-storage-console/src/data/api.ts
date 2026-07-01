@@ -32,7 +32,7 @@ export const createBucket = (input: NewBucketInput) => {
     id: `b-${Date.now()}`,
     owner: 'admin', team: 'Platform Admin', status: 'provisioning',
     objectCount: 0, sizeBytes: 0, createdAt: new Date().toISOString().slice(0, 10),
-    domains: [],
+    domains: [], cors: [],
     ...input,
   }
   buckets.unshift(bucket)
@@ -56,9 +56,99 @@ export const removeBucketDomain = (id: string, domain: string) => {
   return delay(b ? [...b.domains] : [], 300)
 }
 
+// ---- CORS ----
+export const updateBucketCors = (id: string, cors: import('./types').CorsRule[]) => {
+  const b = buckets.find((x) => x.id === id)
+  if (b) b.cors = cors
+  return delay(b ? [...b.cors] : [], 400)
+}
+
 // ---- Assets / objects ----
 export const listAssets = (bucketId?: string) =>
   delay(bucketId ? assets.filter((a) => a.bucketId === bucketId) : [...assets])
+
+const kindByExt: Record<string, Asset['kind']> = {
+  pdf: 'document', doc: 'document', docx: 'document', txt: 'document',
+  jpg: 'image', jpeg: 'image', png: 'image', webp: 'image', svg: 'image', gif: 'image', tiff: 'image',
+  mp4: 'video', mov: 'video', webm: 'video',
+  mp3: 'audio', wav: 'audio',
+  zip: 'archive', tar: 'archive', gz: 'archive',
+  csv: 'data', json: 'data', parquet: 'data',
+}
+const kindFromKey = (key: string): Asset['kind'] =>
+  kindByExt[key.split('.').pop()?.toLowerCase() ?? ''] ?? 'other'
+
+export interface UploadObjectInput {
+  key: string
+  access: Asset['access']
+  sizeBytes?: number
+  contentType?: string
+}
+/** Upload (create) an object with a per-object access flag (public direct URL vs presigned-only). */
+export const uploadObject = (bucketId: string, input: UploadObjectInput): Promise<Asset> => {
+  const bucket = buckets.find((b) => b.id === bucketId)
+  const kind = kindFromKey(input.key)
+  const asset: Asset = {
+    id: `a-${Date.now()}`,
+    key: input.key,
+    bucketId,
+    kind,
+    contentType: input.contentType || 'application/octet-stream',
+    sizeBytes: input.sizeBytes ?? 0,
+    uploadedBy: 'you',
+    uploadedAt: new Date().toISOString(),
+    status: 'queued',
+    access: input.access,
+    tags: [],
+    category: getCategory(bucket?.categoryId ?? '')?.name ?? '—',
+    confidence: null,
+    embedded: false,
+    modelVersion: null,
+    duplicateOf: null,
+  }
+  assets.unshift(asset)
+  if (bucket) bucket.objectCount += 1
+  return delay(asset, 500)
+}
+
+/** Change an object's access flag after upload (owner/writer). */
+export const setObjectAccess = (assetId: string, access: Asset['access']): Promise<Asset | null> => {
+  const a = assets.find((x) => x.id === assetId)
+  if (a) a.access = access
+  return delay(a ?? null, 250)
+}
+
+const S3_ENDPOINT = 'https://s3.amity.internal'
+
+export interface Presigned {
+  url: string
+  method: 'GET' | 'PUT'
+  expiresIn: number
+}
+/**
+ * Mint a time-limited presigned URL (S3 Signature V4 style). In production this
+ * is signed server-side only for callers who pass RBAC — the secret key never
+ * leaves the server, and the link expires. Here it's a realistic mock.
+ */
+export const createPresignedUrl = (
+  bucketName: string,
+  key: string,
+  method: 'GET' | 'PUT',
+  expiresIn: number,
+): Promise<Presigned> => {
+  const hex = (n: number) => Array.from({ length: n }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')
+  const cred = `AMITY7F3K9QX2LMP0WD1/20260701/on-prem-dc1/s3/aws4_request`
+  const qs = [
+    `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+    `X-Amz-Credential=${encodeURIComponent(cred)}`,
+    `X-Amz-Date=20260701T000000Z`,
+    `X-Amz-Expires=${expiresIn}`,
+    `X-Amz-SignedHeaders=host`,
+    `X-Amz-Signature=${hex(64)}`,
+  ].join('&')
+  const url = `${S3_ENDPOINT}/${bucketName}/${encodeURI(key)}?${qs}`
+  return delay({ url, method, expiresIn }, 350)
+}
 
 // ---- Categories ----
 export const listCategories = () => delay([...categories])

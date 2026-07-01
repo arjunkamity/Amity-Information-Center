@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Database, Upload, FileText, Image, Video, Music, Archive, FileBox,
   ChevronRight, Shield, Clock, HardDrive, Sparkles, Copy, Globe, Plus,
-  Trash2, KeyRound, Terminal, ExternalLink, Eye, EyeOff, Check,
+  Trash2, KeyRound, Terminal, ExternalLink, Eye, EyeOff, Check, Network, Pencil,
+  Link2, Lock, ShieldAlert,
 } from 'lucide-react'
 import { Card, CardHead, Badge, Loading, Empty, Stat } from '../components/ui'
 import { CopyField, CopyButton, useCopied } from '../components/Copyable'
+import { CodeBlock } from '../components/Code'
+import { Modal } from '../components/Modal'
 import {
   getBucket, listAssets, getCategory, listKeysForBucket,
-  addBucketDomain, removeBucketDomain, createKeyForBucket,
+  addBucketDomain, removeBucketDomain, createKeyForBucket, updateBucketCors,
+  createPresignedUrl, uploadObject, setObjectAccess, type UploadObjectInput,
 } from '../data/api'
-import type { Bucket, Asset, AssetKind, AccessKey, Permission } from '../data/types'
+import type { Bucket, Asset, AssetKind, AccessKey, Permission, CorsRule, ObjectAccess } from '../data/types'
 import { formatBytes, formatNumber, formatDate, formatDateTime } from '../lib/format'
 import { bucketStatusTone, enrichmentTone, visibilityTone } from '../lib/status'
 
@@ -33,6 +37,8 @@ export default function BucketDetail() {
   const [keys, setKeys] = useState<AccessKey[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('objects')
+  const [linkAsset, setLinkAsset] = useState<Asset | null>(null)
+  const [showUpload, setShowUpload] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -54,7 +60,14 @@ export default function BucketDetail() {
   const dupes = assets.filter((a) => a.status === 'duplicate').length
 
   const refreshDomains = (domains: string[]) => setBucket((b) => (b ? { ...b, domains } : b))
+  const refreshCors = (cors: CorsRule[]) => setBucket((b) => (b ? { ...b, cors } : b))
   const refreshKeys = () => listKeysForBucket(bucket.name).then(setKeys)
+  const addAsset = (a: Asset) => {
+    setAssets((prev) => [a, ...prev])
+    setBucket((b) => (b ? { ...b, objectCount: b.objectCount + 1 } : b))
+  }
+  const updateAssetAccess = (id: string, access: ObjectAccess) =>
+    setAssets((prev) => prev.map((a) => (a.id === id ? { ...a, access } : a)))
 
   return (
     <>
@@ -74,7 +87,7 @@ export default function BucketDetail() {
         </div>
         <div className="flex gap-2">
           <Badge tone={bucketStatusTone[bucket.status]} dot>{bucket.status}</Badge>
-          <button className="btn primary"><Upload size={15} /> Upload</button>
+          <button className="btn primary" onClick={() => setShowUpload(true)}><Upload size={15} /> Upload</button>
         </div>
       </div>
 
@@ -94,13 +107,16 @@ export default function BucketDetail() {
       {tab === 'objects' && (
         <Card>
           <CardHead title="Objects" sub={`Sample of objects in ${bucket.name}. Each upload triggers the enrichment pipeline.`} />
+          <div style={{ padding: '14px 18px 0' }}>
+            <div className="banner info"><ShieldAlert size={15} /> <span><strong>Access is set per object.</strong> <Badge tone="green">Public</Badge> objects are served at their direct URL; <Badge tone="amber">Presigned-only</Badge> objects return <span className="mono">403</span> on the direct URL and need a time-limited link. Set the flag when uploading, or toggle it in the Access column.</span></div>
+          </div>
           {assets.length === 0 ? (
             <Empty icon={<FileBox size={32} />} title="No objects yet" sub="Upload files or point an app at this bucket's S3 endpoint." />
           ) : (
             <div className="table-wrap">
               <table className="tbl">
                 <thead>
-                  <tr><th>Key</th><th>Type</th><th>Size</th><th>Tags</th><th>Enrichment</th><th>Uploaded</th></tr>
+                  <tr><th>Key</th><th>Type</th><th>Size</th><th>Access</th><th>Enrichment</th><th>Uploaded</th><th></th></tr>
                 </thead>
                 <tbody>
                   {assets.map((a) => {
@@ -115,13 +131,12 @@ export default function BucketDetail() {
                         </td>
                         <td className="muted text-sm">{a.contentType}</td>
                         <td>{formatBytes(a.sizeBytes)}</td>
-                        <td>
-                          <span className="flex gap-2 wrap">
-                            {a.tags.length ? a.tags.slice(0, 3).map((t) => <Badge key={t} tone="gray">{t}</Badge>) : <span className="dim text-xs">—</span>}
-                          </span>
-                        </td>
+                        <td><AccessToggle asset={a} onChange={updateAssetAccess} /></td>
                         <td><Badge tone={enrichmentTone[a.status]} dot>{a.status}</Badge></td>
                         <td className="muted text-sm">{formatDateTime(a.uploadedAt)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button className="btn sm ghost" onClick={() => setLinkAsset(a)} title="Generate presigned link"><Link2 size={13} /> Get link</button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -164,6 +179,8 @@ export default function BucketDetail() {
             </div>
           </Card>
 
+          <CorsCard bucket={bucket} onChange={refreshCors} />
+
           <CredentialsCard bucket={bucket} keys={keys} onChange={refreshKeys} />
         </>
       )}
@@ -193,6 +210,9 @@ export default function BucketDetail() {
           </Card>
         </div>
       )}
+
+      {linkAsset && <PresignedUrlModal bucket={bucket} asset={linkAsset} onClose={() => setLinkAsset(null)} />}
+      {showUpload && <UploadObjectModal bucket={bucket} onClose={() => setShowUpload(false)} onUploaded={(a) => { addAsset(a); setShowUpload(false) }} />}
     </>
   )
 }
@@ -256,6 +276,290 @@ function DomainsCard({ bucket, onChange }: { bucket: Bucket; onChange: (domains:
         </div>
       )}
     </Card>
+  )
+}
+
+/* ---------- CORS policy ---------- */
+function corsToS3(rules: CorsRule[]) {
+  return {
+    CORSRules: rules.map((r) => ({
+      AllowedOrigins: r.allowedOrigins,
+      AllowedMethods: r.allowedMethods,
+      AllowedHeaders: r.allowedHeaders,
+      ExposeHeaders: r.exposeHeaders,
+      MaxAgeSeconds: r.maxAgeSeconds,
+    })),
+  }
+}
+function s3ToCors(obj: unknown): CorsRule[] {
+  const rules = (obj as { CORSRules?: unknown })?.CORSRules
+  if (!Array.isArray(rules)) throw new Error('Expected a top-level "CORSRules" array.')
+  return rules.map((r) => ({
+    allowedOrigins: r.AllowedOrigins ?? [],
+    allowedMethods: r.AllowedMethods ?? [],
+    allowedHeaders: r.AllowedHeaders ?? [],
+    exposeHeaders: r.ExposeHeaders ?? [],
+    maxAgeSeconds: r.MaxAgeSeconds ?? 3000,
+  }))
+}
+
+function CorsCard({ bucket, onChange }: { bucket: Bucket; onChange: (cors: CorsRule[]) => void }) {
+  const [editing, setEditing] = useState(false)
+  const hasCors = bucket.cors.length > 0
+
+  return (
+    <Card className="mb-4">
+      <CardHead
+        title="CORS policy"
+        sub="Controls which web origins may call this bucket directly from a browser."
+        action={<button className="btn sm" onClick={() => setEditing(true)}><Pencil size={13} /> {hasCors ? 'Edit' : 'Configure'}</button>}
+      />
+      <div className="card-pad">
+        {!hasCors ? (
+          <div className="banner warn"><Network size={15} /> <span>No CORS policy set. Browser apps hosted on other origins (web apps, landing pages) are blocked from calling this bucket. Add a rule to allow them.</span></div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {bucket.cors.map((r, i) => (
+                <div key={i} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+                  <div className="text-xs dim mb-3">Rule {i + 1}</div>
+                  <dl className="kv" style={{ gridTemplateColumns: '150px 1fr' }}>
+                    <dt>Allowed origins</dt><dd><span className="flex gap-2 wrap">{r.allowedOrigins.map((o) => <Badge key={o} tone="blue">{o}</Badge>)}</span></dd>
+                    <dt>Allowed methods</dt><dd><span className="flex gap-2 wrap">{r.allowedMethods.map((m) => <Badge key={m} tone="green">{m}</Badge>)}</span></dd>
+                    <dt>Allowed headers</dt><dd className="mono text-sm">{r.allowedHeaders.join(', ') || '—'}</dd>
+                    <dt>Expose headers</dt><dd className="mono text-sm">{r.exposeHeaders.join(', ') || '—'}</dd>
+                    <dt>Max age</dt><dd>{r.maxAgeSeconds}s</dd>
+                  </dl>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <CodeBlock id={`cors-${bucket.id}`} language="json" title="CORS configuration (S3 format)" code={JSON.stringify(corsToS3(bucket.cors), null, 2)} />
+            </div>
+          </>
+        )}
+      </div>
+      {editing && <CorsEditor bucket={bucket} onClose={() => setEditing(false)} onSaved={(c) => { onChange(c); setEditing(false) }} />}
+    </Card>
+  )
+}
+
+function CorsEditor({ bucket, onClose, onSaved }: { bucket: Bucket; onClose: () => void; onSaved: (c: CorsRule[]) => void }) {
+  const template = bucket.cors.length
+    ? JSON.stringify(corsToS3(bucket.cors), null, 2)
+    : JSON.stringify({ CORSRules: [{ AllowedOrigins: ['https://*.amity.edu'], AllowedMethods: ['GET', 'HEAD'], AllowedHeaders: ['*'], ExposeHeaders: ['ETag'], MaxAgeSeconds: 3000 }] }, null, 2)
+  const [text, setText] = useState(template)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    let rules: CorsRule[]
+    try {
+      rules = s3ToCors(JSON.parse(text))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invalid JSON'); return
+    }
+    setBusy(true)
+    const saved = await updateBucketCors(bucket.id, rules)
+    onSaved(saved)
+  }
+
+  return (
+    <Modal
+      title="Edit CORS policy"
+      onClose={onClose}
+      footer={<>
+        <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save policy'}</button>
+      </>}
+    >
+      <div className="banner warn mb-3"><Shield size={14} /> <span>Owner-only. Restrict origins to your real domains — avoid <code className="mono">"*"</code> in production.</span></div>
+      <textarea className="input mono" style={{ minHeight: 260, whiteSpace: 'pre' }} value={text} onChange={(e) => { setText(e.target.value); setError(null) }} spellCheck={false} />
+      {error && <div className="text-sm mt-2" style={{ color: 'var(--red)' }}>{error}</div>}
+    </Modal>
+  )
+}
+
+/* ---------- Presigned URL ---------- */
+const EXPIRY_OPTIONS = [
+  { v: 300, l: '5 minutes' },
+  { v: 900, l: '15 minutes' },
+  { v: 3600, l: '1 hour' },
+  { v: 86400, l: '24 hours' },
+]
+
+function PresignedUrlModal({ bucket, asset, onClose }: { bucket: Bucket; asset: Asset; onClose: () => void }) {
+  const isPublic = asset.access === 'public'
+  const [method, setMethod] = useState<'GET' | 'PUT'>('GET')
+  const [expiresIn, setExpiresIn] = useState(900)
+  const [result, setResult] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { copied, copy } = useCopied()
+
+  const directUrl = bucket.domains[0]
+    ? `https://${bucket.domains[0]}/${asset.key}`
+    : `${S3_ENDPOINT}/${bucket.name}/${asset.key}`
+  const expiryLabel = EXPIRY_OPTIONS.find((o) => o.v === expiresIn)?.l ?? `${expiresIn}s`
+
+  const generate = async () => {
+    setBusy(true)
+    const p = await createPresignedUrl(bucket.name, asset.key, method, expiresIn)
+    setResult(p.url); setBusy(false)
+  }
+
+  return (
+    <Modal title="Generate presigned URL" onClose={onClose} footer={<button className="btn ghost" onClick={onClose}>Close</button>}>
+      <div className="banner mb-3" style={{ display: 'block' }}>
+        <div className="dim text-xs mb-3">Object</div>
+        <code className="mono text-sm" style={{ color: 'var(--text)', wordBreak: 'break-all' }}>{asset.key}</code>
+      </div>
+
+      {isPublic ? (
+        <div className="banner info mb-4"><Globe size={15} /> <span>This object is flagged <strong>Public</strong> — it&#39;s already reachable at its direct URL below. Presigned links are optional here.</span></div>
+      ) : (
+        <div className="banner warn mb-4"><ShieldAlert size={15} /> <span>This object is <strong>Presigned-only</strong>. The direct URL returns <span className="mono">403</span>; a presigned link is the only way to grant access — and it expires.</span></div>
+      )}
+
+      <div className="grid grid-2" style={{ gap: 14 }}>
+        <div className="field" style={{ marginBottom: 8 }}>
+          <label>Operation</label>
+          <div className="flex gap-2">
+            {(['GET', 'PUT'] as const).map((m) => (
+              <button key={m} type="button" className={`btn sm ${method === m ? 'primary' : 'ghost'}`} onClick={() => { setMethod(m); setResult(null) }}>{m === 'GET' ? 'GET · download' : 'PUT · upload'}</button>
+            ))}
+          </div>
+        </div>
+        <div className="field" style={{ marginBottom: 8 }}>
+          <label>Expires in</label>
+          <select className="input" value={expiresIn} onChange={(e) => { setExpiresIn(Number(e.target.value)); setResult(null) }}>
+            {EXPIRY_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <button className="btn primary fill mt-2" onClick={generate} disabled={busy}><Link2 size={15} /> {busy ? 'Signing…' : `Generate ${method} link`}</button>
+
+      {result && (
+        <div className="field mt-4" style={{ marginBottom: 0 }}>
+          <label>Presigned {method} URL · expires in {expiryLabel}</label>
+          <div style={{ position: 'relative' }}>
+            <textarea className="input mono text-sm" readOnly value={result} style={{ minHeight: 92, whiteSpace: 'pre-wrap', wordBreak: 'break-all', paddingRight: 44 }} />
+            <button className="btn sm ghost" style={{ position: 'absolute', top: 8, right: 8 }} onClick={() => copy('presigned', result)}>
+              {copied === 'presigned' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+            </button>
+          </div>
+          <div className="hint">Anyone with this link can {method === 'GET' ? 'download' : 'upload'} until it expires. Don&#39;t post it publicly.</div>
+        </div>
+      )}
+
+      <hr className="divider" />
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="flex items-center gap-2">Direct URL {isPublic ? <Badge tone="green">public</Badge> : <Badge tone="red"><Lock size={11} /> 403</Badge>}</label>
+        <div className="flex items-center gap-2">
+          <input className="input mono text-sm" readOnly value={directUrl} style={{ flex: 1, opacity: isPublic ? 1 : 0.6 }} />
+          <button className="btn sm ghost" style={{ padding: '8px 9px' }} onClick={() => copy('direct', directUrl)} disabled={!isPublic} title={isPublic ? 'Copy' : 'Blocked for private buckets'}>
+            {copied === 'direct' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+          </button>
+        </div>
+        {!isPublic && <div className="hint">Blocked — this bucket has no public policy. Use the presigned link above.</div>}
+      </div>
+    </Modal>
+  )
+}
+
+/* ---------- Per-object access toggle ---------- */
+function AccessToggle({ asset, onChange }: { asset: Asset; onChange: (id: string, access: ObjectAccess) => void }) {
+  const [busy, setBusy] = useState(false)
+  const isPublic = asset.access === 'public'
+  const toggle = async () => {
+    setBusy(true)
+    const next: ObjectAccess = isPublic ? 'private' : 'public'
+    await setObjectAccess(asset.id, next)
+    onChange(asset.id, next)
+    setBusy(false)
+  }
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      title={`Click to make this object ${isPublic ? 'presigned-only' : 'public'}`}
+      className={`badge ${isPublic ? 'green' : 'amber'}`}
+      style={{ cursor: 'pointer', border: 'none', opacity: busy ? 0.5 : 1 }}
+    >
+      {isPublic ? <Globe size={11} /> : <Lock size={11} />}
+      {isPublic ? 'Public' : 'Presigned-only'}
+    </button>
+  )
+}
+
+/* ---------- Upload object (with per-object access flag) ---------- */
+function UploadObjectModal({ bucket, onClose, onUploaded }: { bucket: Bucket; onClose: () => void; onUploaded: (a: Asset) => void }) {
+  const [key, setKey] = useState('')
+  const [access, setAccess] = useState<ObjectAccess>(bucket.visibility === 'public' ? 'public' : 'private')
+  const [sizeMb, setSizeMb] = useState('')
+  const [busy, setBusy] = useState(false)
+  const valid = key.trim().length > 2 && !key.trim().startsWith('/')
+
+  const submit = async () => {
+    if (!valid) return
+    setBusy(true)
+    const input: UploadObjectInput = {
+      key: key.trim(),
+      access,
+      sizeBytes: sizeMb ? Math.round(Number(sizeMb) * 1024 * 1024) : 1_200_000,
+    }
+    const a = await uploadObject(bucket.id, input)
+    onUploaded(a)
+  }
+
+  const AccessOption = ({ value, icon, title, desc }: { value: ObjectAccess; icon: ReactNode; title: string; desc: string }) => (
+    <button
+      type="button"
+      onClick={() => setAccess(value)}
+      style={{
+        textAlign: 'left', padding: 14, borderRadius: 10, cursor: 'pointer',
+        background: access === value ? 'var(--brand-soft)' : 'var(--surface-2)',
+        border: `1px solid ${access === value ? 'var(--brand)' : 'var(--border)'}`,
+      }}
+    >
+      <div className="flex items-center gap-2" style={{ fontWeight: 600 }}>
+        <span style={{ color: value === 'public' ? 'var(--green)' : 'var(--amber)' }}>{icon}</span>
+        {title}
+        {access === value && <Check size={15} color="var(--brand-2)" style={{ marginLeft: 'auto' }} />}
+      </div>
+      <div className="dim text-xs mt-2" style={{ lineHeight: 1.4 }}>{desc}</div>
+    </button>
+  )
+
+  return (
+    <Modal
+      title="Upload object"
+      onClose={onClose}
+      footer={<>
+        <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn primary" onClick={submit} disabled={!valid || busy}><Upload size={15} /> {busy ? 'Uploading…' : 'Upload'}</button>
+      </>}
+    >
+      <div className="field">
+        <label>Object key (path)</label>
+        <input className="input mono" autoFocus placeholder="uploads/2026/report.pdf" value={key} onChange={(e) => setKey(e.target.value)} />
+        <div className="hint">Destination: <span className="mono">{bucket.name}/{key.trim() || '…'}</span></div>
+      </div>
+      <div className="field">
+        <label>Size (MB, optional)</label>
+        <input className="input" type="number" min="0" placeholder="1.2" value={sizeMb} onChange={(e) => setSizeMb(e.target.value)} />
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label>Access</label>
+        <div className="grid grid-2" style={{ gap: 10 }}>
+          <AccessOption value="public" icon={<Globe size={15} />} title="Public" desc="Served at its direct URL (or CDN domain). Use for non-sensitive web assets." />
+          <AccessOption value="private" icon={<Lock size={15} />} title="Presigned-only" desc="Direct URL returns 403. Access only via time-limited presigned links." />
+        </div>
+        {access === 'public' && bucket.visibility !== 'public' && (
+          <div className="banner warn mt-3"><ShieldAlert size={14} /> <span>This is a <strong>{bucket.visibility}</strong> bucket — publishing an object here exposes it to anyone with the URL. Confirm it holds no sensitive data.</span></div>
+        )}
+      </div>
+    </Modal>
   )
 }
 

@@ -26,10 +26,23 @@ export interface Bucket {
   retentionDays: number | null
   /** custom/vanity domains mapped to this bucket (e.g. cdn.amity.edu) */
   domains: string[]
+  /** CORS rules governing cross-origin browser access */
+  cors: CorsRule[]
+}
+
+/** A single CORS rule (mirrors the S3 CORSRule shape). */
+export interface CorsRule {
+  allowedOrigins: string[]
+  allowedMethods: string[]
+  allowedHeaders: string[]
+  exposeHeaders: string[]
+  maxAgeSeconds: number
 }
 
 export type AssetKind = 'document' | 'image' | 'video' | 'audio' | 'archive' | 'data' | 'other'
 export type EnrichmentStatus = 'searchable' | 'processing' | 'queued' | 'failed' | 'duplicate'
+/** Per-object access: 'public' → served at its direct URL; 'private' → presigned-only. */
+export type ObjectAccess = 'public' | 'private'
 
 /** §6 Asset — canonical record of a raw stored object, plus derived AI fields. */
 export interface Asset {
@@ -42,6 +55,8 @@ export interface Asset {
   uploadedBy: string
   uploadedAt: string
   status: EnrichmentStatus
+  /** per-object access flag set at upload (public direct URL vs presigned-only) */
+  access: ObjectAccess
   /** AI-derived (§6) */
   tags: string[]
   category: string

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Amity Enterprise File Storage — management console (UI skeleton, mock data)",
   "scripts": {
+    "start": "vite",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

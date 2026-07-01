@@ -6,7 +6,7 @@
 
 import type {
   Bucket, Asset, Category, AccessPolicy, AccessKey,
-  PipelineJob, AuditLog, SeriesPoint, StorageSlice,
+  PipelineJob, AuditLog, SeriesPoint, StorageSlice, CorsRule,
 } from './types'
 
 export const categories: Category[] = [
@@ -17,7 +17,7 @@ export const categories: Category[] = [
   { id: 'cat-int', name: 'Internal / Restricted', description: 'Confidential internal documents.', retentionDays: 1825, namingPattern: 'int/{dept}/{doc}', bucketCount: 2, color: 'red' },
 ]
 
-const bucketSeed: Omit<Bucket, 'domains'>[] = [
+const bucketSeed: Omit<Bucket, 'domains' | 'cors'>[] = [
   { id: 'b-01', name: 'amity-web-public', description: 'Primary public website static assets.', owner: 'Priya Sharma', team: 'Web Platform', visibility: 'public', status: 'active', region: 'on-prem-dc1', categoryId: 'cat-pub', objectCount: 184302, sizeBytes: 412_000_000_000, versioning: true, encryption: true, createdAt: '2025-01-14', retentionDays: null },
   { id: 'b-02', name: 'amity-promo-pages', description: '1,500+ promotional landing page media.', owner: 'Rahul Verma', team: 'Marketing', visibility: 'public', status: 'active', region: 'on-prem-dc1', categoryId: 'cat-mkt', objectCount: 98211, sizeBytes: 271_500_000_000, versioning: true, encryption: true, createdAt: '2025-02-03', retentionDays: 730 },
   { id: 'b-03', name: 'amity-lms-content', description: 'Learning management system course assets.', owner: 'Dr. Meera Nair', team: 'Academics', visibility: 'internal', status: 'active', region: 'on-prem-dc1', categoryId: 'cat-doc', objectCount: 512840, sizeBytes: 1_840_000_000_000, versioning: true, encryption: true, createdAt: '2024-11-20', retentionDays: 3650 },
@@ -38,7 +38,32 @@ const bucketDomains: Record<string, string[]> = {
   'b-09': ['gallery.amity.edu'],
 }
 
-export const buckets: Bucket[] = bucketSeed.map((b) => ({ ...b, domains: bucketDomains[b.id] ?? [] }))
+const webRule: CorsRule = {
+  allowedOrigins: ['https://*.amity.edu', 'https://amity.edu'],
+  allowedMethods: ['GET', 'HEAD'],
+  allowedHeaders: ['*'],
+  exposeHeaders: ['ETag', 'Content-Length'],
+  maxAgeSeconds: 3600,
+}
+const uploadRule: CorsRule = {
+  allowedOrigins: ['https://app.amity.edu', 'http://localhost:5173'],
+  allowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
+  allowedHeaders: ['*'],
+  exposeHeaders: ['ETag', 'x-amz-request-id'],
+  maxAgeSeconds: 3000,
+}
+const bucketCors: Record<string, CorsRule[]> = {
+  'b-01': [webRule],
+  'b-02': [webRule],
+  'b-05': [uploadRule],
+  'b-09': [webRule],
+}
+
+export const buckets: Bucket[] = bucketSeed.map((b) => ({
+  ...b,
+  domains: bucketDomains[b.id] ?? [],
+  cors: bucketCors[b.id] ?? [],
+}))
 
 const assetSeed: Array<Partial<Asset> & { key: string; bucketId: string; kind: Asset['kind'] }> = [
   { key: 'web/home/2026/hero-banner.webp', bucketId: 'b-01', kind: 'image', status: 'searchable', tags: ['hero', 'campus', 'banner'], category: 'Public Web', confidence: 0.97 },
@@ -57,7 +82,7 @@ const assetSeed: Array<Partial<Asset> & { key: string; bucketId: string; kind: A
   { key: 'research/genomics/dataset-04.parquet', bucketId: 'b-08', kind: 'data', status: 'searchable', tags: ['dataset', 'genomics'], category: 'Academic Documents', confidence: 0.9 },
   { key: 'research/genomics/methods.pdf', bucketId: 'b-08', kind: 'document', status: 'searchable', tags: ['methods', 'research'], category: 'Academic Documents', confidence: 0.92 },
   { key: 'web/events/2026/convocation-001.jpg', bucketId: 'b-09', kind: 'image', status: 'searchable', tags: ['event', 'convocation'], category: 'Public Web', confidence: 0.96 },
-  { key: 'web/events/2026/convocation-archive.zip', bucketId: 'b-09', kind: 'archive', status: 'searchable', tags: ['event', 'archive'], category: 'Public Web', confidence: 0.7 },
+  { key: 'web/events/2026/convocation-archive.zip', bucketId: 'b-09', kind: 'archive', status: 'searchable', tags: ['event', 'archive'], category: 'Public Web', confidence: 0.7, access: 'private' },
   { key: 'int/legacy/scan-batch-0099.tiff', bucketId: 'b-11', kind: 'image', status: 'failed', tags: [], category: 'Internal / Restricted', confidence: null },
 ]
 
@@ -77,6 +102,7 @@ export const assets: Asset[] = assetSeed.map((s, i) => ({
   uploadedBy: uploaders[i % uploaders.length],
   uploadedAt: `2026-06-${String(10 + (i % 18)).padStart(2, '0')}T${String(8 + (i % 10)).padStart(2, '0')}:2${i % 6}:00Z`,
   status: s.status!,
+  access: s.access ?? (buckets.find((b) => b.id === s.bucketId)?.visibility === 'public' ? 'public' : 'private'),
   tags: s.tags ?? [],
   category: s.category!,
   confidence: s.confidence ?? null,

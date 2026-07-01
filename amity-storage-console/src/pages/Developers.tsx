@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Rocket, Database, KeyRound, Shield, Globe2, ArrowDownToLine, ArrowUpFromLine,
   List, Trash2, Link2, Layers, Monitor, FileCode2, Smartphone, Lock, BookOpen,
+  ShieldCheck, Globe,
 } from 'lucide-react'
 import { Card, Badge } from '../components/ui'
 import { CodeBlock, CodeTabs } from '../components/Code'
@@ -11,9 +12,10 @@ const ENDPOINT = 'https://s3.amity.internal'
 
 const toc = [
   { id: 'overview', label: 'Overview', icon: Rocket },
+  { id: 'access-model', label: 'Access & security model', icon: ShieldCheck },
   { id: 'create-bucket', label: '1. Create a bucket', icon: Database },
   { id: 'keys', label: '2. Get access keys', icon: KeyRound },
-  { id: 'policies', label: '3. Bucket policies', icon: Shield },
+  { id: 'policies', label: '3. Policies & object access', icon: Shield },
   { id: 'cors', label: '4. Configure CORS', icon: Globe2 },
   { id: 'operations', label: '5. Object operations', icon: Layers },
   { id: 'web', label: 'Implement: Web apps', icon: Monitor },
@@ -60,7 +62,7 @@ export default function Developers() {
             <div className="grid grid-4 mt-3 mb-3">
               <Flow n={1} icon={<Database size={16} />} label="Create bucket" />
               <Flow n={2} icon={<KeyRound size={16} />} label="Get keys" />
-              <Flow n={3} icon={<Shield size={16} />} label="Set policy + CORS" />
+              <Flow n={3} icon={<Shield size={16} />} label="Set access + CORS" />
               <Flow n={4} icon={<Layers size={16} />} label="Read / write objects" />
             </div>
             <div className="banner warn mb-3"><Lock size={15} /> <span>Only a bucket&#39;s <strong>owner</strong> can administer it — create/revoke keys, set policies &amp; CORS, map domains, or delete it. Other roles get read/write per the bucket&#39;s RBAC policy.</span></div>
@@ -74,6 +76,36 @@ export default function Developers() {
                 { label: 'MinIO mc', language: 'bash', code: `mc alias set amity ${ENDPOINT} <ACCESS_KEY> <SECRET_KEY>` },
               ]}
             />
+          </Section>
+
+          <Section id="access-model" icon={<ShieldCheck size={18} />} title="Access & security model">
+            <p className="muted">Access is enforced in layers. Understand these before you store anything — they decide who can reach an object and how.</p>
+            <div className="table-wrap mt-2 mb-3" style={{ border: '1px solid var(--border)', borderRadius: 10 }}>
+              <table className="tbl">
+                <thead>
+                  <tr><th>Layer</th><th>Controls</th><th>Set by / where</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>Bucket owner</strong></td><td>Administration — keys, policy, CORS, domains, delete</td><td className="muted">Creator only (owner-only)</td></tr>
+                  <tr><td><strong>RBAC policy</strong></td><td>Which roles get read / write / delete on the bucket</td><td className="muted"><Link to="/policies" style={{ color: 'var(--brand-2)' }}>Policies</Link>, per request</td></tr>
+                  <tr><td><strong>Access keys</strong></td><td>App credentials, scoped to a bucket + permissions</td><td className="muted"><Link to="/access" style={{ color: 'var(--brand-2)' }}>Access &amp; Keys</Link></td></tr>
+                  <tr><td><strong>Object access flag</strong></td><td><Badge tone="green">public</Badge> direct URL vs <Badge tone="amber">presigned-only</Badge></td><td className="muted">Per object, at upload</td></tr>
+                  <tr><td><strong>Presigned URL</strong></td><td>Time-limited, signed access to a private object</td><td className="muted">Signed server-side</td></tr>
+                  <tr><td><strong>CORS</strong></td><td>Which browser origins may call the bucket</td><td className="muted">Per bucket (§4)</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="grid grid-2" style={{ gap: 12 }}>
+              <div className="banner" style={{ display: 'block' }}>
+                <div className="flex items-center gap-2 mb-3" style={{ fontWeight: 600, color: 'var(--green)' }}><Globe size={15} /> Public object</div>
+                <span className="text-sm muted">Reachable at its direct URL / CDN domain. Use for logos, banners, public web assets. <strong>Never</strong> for sensitive data.</span>
+              </div>
+              <div className="banner" style={{ display: 'block' }}>
+                <div className="flex items-center gap-2 mb-3" style={{ fontWeight: 600, color: 'var(--amber)' }}><Lock size={15} /> Presigned-only object</div>
+                <span className="text-sm muted">Direct URL returns <span className="mono">403</span>. Access only via a short-lived presigned URL that respects the caller&#39;s permissions and expires.</span>
+              </div>
+            </div>
+            <div className="banner warn mt-3"><ShieldCheck size={15} /> <span><strong>Rule of thumb:</strong> sensitive data → a <strong>private bucket</strong> with objects left <strong>presigned-only</strong> (the default). Flag an object <strong>public</strong> only when it&#39;s genuinely meant for the open web.</span></div>
           </Section>
 
           <Section id="create-bucket" icon={<Database size={18} />} title="1. Create a bucket">
@@ -99,7 +131,7 @@ export default function Developers() {
             <CodeBlock id="env" language="bash" title=".env" code={`AMITY_S3_ENDPOINT=${ENDPOINT}\nAMITY_S3_REGION=on-prem-dc1\nAMITY_ACCESS_KEY_ID=AMITY7F3K9QX2LMP0WD1\nAMITY_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`} />
           </Section>
 
-          <Section id="policies" icon={<Shield size={18} />} title="3. Bucket policies">
+          <Section id="policies" icon={<Shield size={18} />} title="3. Policies & object access">
             <p className="muted">
               Policies control who can do what. The platform enforces <strong>RBAC</strong> (roles → bucket permissions, managed under <Link to="/policies" style={{ color: 'var(--brand-2)' }}>Policies</Link>) on every request, and <strong>only the bucket owner</strong> can change a bucket&#39;s policy or CORS. For website/CDN assets the owner can additionally attach a JSON bucket policy that allows anonymous <code className="mono">GetObject</code> (public read).
             </p>
@@ -126,6 +158,19 @@ export default function Developers() {
               ]}
             />
             <div className="banner warn mt-3"><span>Private buckets (records, app data) should have <strong>no public policy</strong> — serve them through presigned URLs instead (see §5).</span></div>
+
+            <hr className="divider" />
+            <h3 className="flex items-center gap-2 mb-3" style={{ fontSize: 15 }}><Lock size={16} /> Per-object access</h3>
+            <p className="muted">Beyond the bucket policy, <strong>each object</strong> carries its own access flag — so one bucket can mix public and private objects. Set it at upload with <code className="mono">x-amz-acl</code> (or the console&#39;s Access column):</p>
+            <CodeTabs
+              id="object-acl"
+              tabs={[
+                { label: 'Amity CLI', language: 'bash', code: `# public → served at its direct URL\namity object put amity-web-public web/logo.svg ./logo.svg --access public\n\n# presigned-only (default) → direct URL returns 403\namity object put amity-my-app private/report.pdf ./report.pdf --access private` },
+                { label: 'Node.js', language: 'javascript', code: `// public object\nawait s3.send(new PutObjectCommand({\n  Bucket: "amity-web-public", Key: "web/logo.svg",\n  Body: data, ACL: "public-read",\n}));\n\n// presigned-only object (default)\nawait s3.send(new PutObjectCommand({\n  Bucket: "amity-my-app", Key: "private/report.pdf",\n  Body: data, ACL: "private",\n}));` },
+                { label: 'cURL', language: 'bash', code: `curl -X PUT "${ENDPOINT}/amity-web-public/web/logo.svg" \\\n  --upload-file logo.svg \\\n  -H "x-amz-acl: public-read"   # 'private' (default) = presigned-only` },
+              ]}
+            />
+            <div className="banner info mt-3"><span>Change an object&#39;s flag later via <code className="mono">PUT /{'{bucket}'}/{'{key}'}?acl</code>, or the <strong>Access</strong> toggle on the bucket&#39;s Objects tab. Reading a presigned-only object&#39;s direct URL returns <span className="mono">403 AccessDenied</span> — see the <Link to="/developers/api" style={{ color: 'var(--brand-2)' }}>API Reference</Link>.</span></div>
           </Section>
 
           <Section id="cors" icon={<Globe2 size={18} />} title="4. Configure CORS">
@@ -160,6 +205,15 @@ export default function Developers() {
                 { label: 'Python', language: 'python', code: `s3.upload_file("avatar.png", "amity-my-app", "uploads/avatar.png",\n    ExtraArgs={"ContentType": "image/png"})` },
                 { label: 'Amity CLI', language: 'bash', code: `amity object put amity-my-app uploads/avatar.png ./avatar.png` },
                 { label: 'cURL', language: 'bash', code: `curl -X PUT "${ENDPOINT}/amity-my-app/uploads/avatar.png" \\\n  --upload-file avatar.png \\\n  -H "Content-Type: image/png"   # + S3 Signature V4 auth` },
+              ]}
+            />
+            <p className="muted mt-3"><strong>Per-object access.</strong> Flag each object at upload as <Badge tone="green">public</Badge> (served at its direct URL) or <Badge tone="amber">presigned-only</Badge> (direct URL returns <code className="mono">403</code>). Send an ACL / access header — the same bucket can hold both.</p>
+            <CodeTabs
+              id="put-access"
+              tabs={[
+                { label: 'Node.js', language: 'javascript', code: `// Public object — reachable at its direct URL\nawait s3.send(new PutObjectCommand({\n  Bucket: "amity-web-public", Key: "web/logo.svg",\n  Body: data, ContentType: "image/svg+xml",\n  ACL: "public-read",\n}));\n\n// Presigned-only object (default) — omit the ACL\nawait s3.send(new PutObjectCommand({\n  Bucket: "amity-my-app", Key: "private/report.pdf",\n  Body: data, ACL: "private",\n}));` },
+                { label: 'Amity CLI', language: 'bash', code: `# public → direct URL works\namity object put amity-web-public web/logo.svg ./logo.svg --access public\n\n# presigned-only (default) → 403 on direct URL\namity object put amity-my-app private/report.pdf ./report.pdf --access private` },
+                { label: 'cURL', language: 'bash', code: `curl -X PUT "${ENDPOINT}/amity-web-public/web/logo.svg" \\\n  --upload-file logo.svg \\\n  -H "x-amz-acl: public-read"   # 'private' (default) = presigned-only` },
               ]}
             />
 
@@ -202,7 +256,7 @@ export default function Developers() {
                 { label: 'Python', language: 'python', code: `upload_url = s3.generate_presigned_url("put_object",\n    Params={"Bucket": "amity-my-app", "Key": "uploads/photo.jpg"},\n    ExpiresIn=300)\n\ndownload_url = s3.generate_presigned_url("get_object",\n    Params={"Bucket": "amity-my-app", "Key": "uploads/photo.jpg"},\n    ExpiresIn=300)` },
               ]}
             />
-            <div className="banner info mt-3"><span>Presigned URLs are the recommended pattern for browsers and mobile: your backend signs the URL, the client uploads directly to storage — keys never leave the server.</span></div>
+            <div className="banner info mt-3"><span>Presigned URLs are the <strong>only</strong> way to read a <Badge tone="amber">presigned-only</Badge> object, and the recommended pattern for browsers and mobile everywhere: your backend signs the URL, the client transfers directly to storage — keys never leave the server.</span></div>
           </Section>
 
           <Section id="web" icon={<Monitor size={18} />} title="Implement in web apps">
@@ -245,6 +299,7 @@ export default function Developers() {
        autoplay muted loop></video>`} />
             <p className="muted mt-3">Or the raw S3 path if no custom domain is set:</p>
             <CodeBlock id="landing-raw" language="xml" code={`<img src="${ENDPOINT}/amity-web-public/web/home/2026/hero-banner.webp" />`} />
+            <div className="banner warn mt-3"><Globe size={15} /> <span>These assets must be flagged <strong>public</strong> (per-object access, §3) or they&#39;ll return <span className="mono">403</span>. Only put non-sensitive content on a landing page.</span></div>
             <div className="banner info mt-3"><span>For a "submit your details" form on a landing page that uploads a file, use the same presigned-URL pattern as web apps (§Web apps) so you don't ship keys in static HTML.</span></div>
           </Section>
 
@@ -267,6 +322,7 @@ export default function Developers() {
               <li>Never ship the <strong>secret key</strong> in browser JS, static HTML, or a mobile binary — sign URLs server-side.</li>
               <li>Scope each key to <strong>one bucket</strong> with the <strong>least permissions</strong> required (read-only where possible).</li>
               <li>Keep <strong>presigned URL expiry short</strong> (1–5 minutes for uploads).</li>
+              <li>Leave objects <strong>presigned-only by default</strong>; flag an object <strong>public</strong> only when it&#39;s meant for the open web. A private object&#39;s direct URL returns <span className="mono">403</span>.</li>
               <li>Make buckets <strong>public-read only</strong> for genuinely public web assets; everything else stays private + presigned.</li>
               <li>Restrict <strong>CORS origins</strong> to your real domains — avoid <code className="mono">"*"</code> in production.</li>
               <li>Rotate keys periodically and <strong>revoke</strong> unused ones under <Link to="/access" style={{ color: 'var(--brand-2)' }}>Access &amp; Keys</Link>.</li>
