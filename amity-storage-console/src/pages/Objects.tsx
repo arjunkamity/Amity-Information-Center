@@ -46,7 +46,7 @@ export default function Objects() {
       </div>
 
       <div className="flex items-center gap-3 mb-4 wrap">
-        <div className="topbar search" style={{ maxWidth: 360, position: 'static' as const }}>
+        <div className="searchbox" style={{ maxWidth: 360, flex: 1 }}>
           <Search size={16} />
           <input placeholder="Filter by key, tag or category…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>

@@ -38,7 +38,7 @@ export default function SearchPage() {
 
       <Card className="card-pad mb-4">
         <form onSubmit={(e) => { e.preventDefault(); run(q) }}>
-          <div className="topbar search" style={{ maxWidth: '100%', position: 'static' as const, padding: '12px 16px' }}>
+          <div className="searchbox" style={{ padding: '12px 16px' }}>
             <Search size={18} />
             <input autoFocus placeholder="Describe what you're looking for…" value={q} onChange={(e) => setQ(e.target.value)} style={{ fontSize: 15 }} />
             <button className="btn primary sm" type="submit"><Sparkles size={14} /> Search</button>

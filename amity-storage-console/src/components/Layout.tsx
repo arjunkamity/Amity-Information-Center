@@ -71,7 +71,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <div className="main">
         <header className="topbar">
-          <div className="search" onClick={() => navigate('/search')} style={{ cursor: 'pointer' }}>
+          <div className="searchbox" onClick={() => navigate('/search')} style={{ cursor: 'pointer' }}>
             <Search size={16} />
             <input
               placeholder="Search assets semantically…"
